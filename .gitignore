@@ -1,0 +1,37 @@
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore PHPStorm / VS Code files
+.vscode/
+.idea/
+
+# Ignore Composer vendor directory (if using Composer)
+vendor/
+
+# Ignore Node modules (if any front-end build)
+node_modules/
+
+# Ignore environment or config files with credentials
+.env
+config.php
+db.php
+
+# Ignore log files
+*.log
+
+# Ignore cache or temporary files
+cache/
+tmp/
+
+# Ignore uploaded images (optional, if you don't want to version user uploads)
+uploads/
+images/uploads/
+
+# Ignore compiled CSS/JS (if using preprocessor or bundler)
+dist/
+build/
+
+# Ignore database backups
+*.sql
+*.sqlite
