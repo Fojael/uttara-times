@@ -149,7 +149,14 @@ $result = $stmt->get_result();
             <i class="fas fa-bars"></i>
         </button>
         <h4 class="m-0">My Articles</h4>
-        <span class="text-muted d-none d-md-inline"><?php echo htmlspecialchars($_SESSION['username']); ?></span>
+        <div class="dropdown d-none d-md-block">
+            <a href="#" class="text-muted dropdown-toggle" id="journalistDropdown" data-bs-toggle="dropdown" aria-expanded="false" style="text-decoration:none;cursor:pointer;">
+                <?php echo htmlspecialchars($_SESSION['username']); ?>
+            </a>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="journalistDropdown">
+                <li><a class="dropdown-item text-danger" href="logout.php"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+            </ul>
+        </div>
     </div>
 
     <!-- Sidebar -->
@@ -256,7 +263,7 @@ $result = $stmt->get_result();
 
     <!-- Scripts -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 

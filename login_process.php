@@ -23,7 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Verify user
     if ($result->num_rows === 1) {
         $user = $result->fetch_assoc();
-        
+
         // Check if password matches
         if (password_verify($password, $user['password_hash'])) {
             // Login successful
@@ -31,14 +31,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['username'] = $user['username'];
             $_SESSION['role'] = $user['role'];
 
+            // Log the login activity (safely check if table exists)
+            $ip_address = $_SERVER['REMOTE_ADDR'];
+            $user_agent = $_SERVER['HTTP_USER_AGENT'];
+            $tableCheck = $conn->query("SHOW TABLES LIKE 'user_logins'");
+            if ($tableCheck && $tableCheck->num_rows > 0) {
+                $login_stmt = $conn->prepare("INSERT INTO user_logins (user_id, ip_address, user_agent, status) VALUES (?, ?, ?, 'success')");
+                $login_stmt->bind_param("iss", $user['user_id'], $ip_address, $user_agent);
+                $login_stmt->execute();
+            }
+
             // Redirect based on the role
             if ($role === 'editor') {
                 header("Location: editor_dashboard.php");
-            } else {
+            } elseif ($role === 'journalist') {
                 header("Location: journalist_dashboard.php");
+            } elseif ($role === 'user') {
+                header("Location: user_dashboard.php");
+            } else {
+                header("Location: index.php");
             }
             exit();
         } else {
+            // Log failed login
+            $ip_address = $_SERVER['REMOTE_ADDR'];
+            $user_agent = $_SERVER['HTTP_USER_AGENT'];
+            $login_stmt = $conn->prepare("INSERT INTO user_logins (user_id, ip_address, user_agent, status) VALUES (?, ?, ?, 'failed')");
+            $login_stmt->bind_param("iss", $user['user_id'], $ip_address, $user_agent);
+            $login_stmt->execute();
+
             header("Location: login.php?error=" . urlencode("Incorrect password."));
             exit();
         }

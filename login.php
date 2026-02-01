@@ -4,7 +4,7 @@
 
 <head>
   <meta charset="UTF-8">
-  <title>Login | Austro-Asian Times</title>
+  <title>Login | Uttara-Times</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- Bootstrap CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -28,6 +28,7 @@
       box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05);
       background-color: #ffffff;
       border: 1px solid #dee2e6;
+      z-index: 1;
     }
 
     .card h2 {
@@ -73,10 +74,22 @@
       border: none;
       border-radius: 10px;
     }
+
+    .home-button {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      z-index: 10;
+    }
   </style>
 </head>
 
 <body>
+
+  <!-- Home Button -->
+  <a href="index.php" class="btn btn-outline-primary home-button">
+    &larr; Home
+  </a>
 
   <div class="card">
     <h2 class="text-center mb-4">Login</h2>

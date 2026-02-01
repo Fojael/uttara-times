@@ -1,11 +1,59 @@
 <?php
 session_start();
+require_once 'db.php';
 
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'journalist') {
     header('Location: login.php');
     exit();
 }
+
+$journalist_id = $_SESSION['user_id'];
 $username = htmlspecialchars($_SESSION['username']);
+
+// Count total articles by the journalist
+$article_count = 0;
+$stmt = $conn->prepare("SELECT COUNT(*) FROM articles WHERE author_id = ?");
+$stmt->bind_param("i", $journalist_id);
+$stmt->execute();
+$stmt->bind_result($article_count);
+$stmt->fetch();
+$stmt->close();
+
+// Count total approved comments on journalist's articles
+$comment_count = 0;
+$stmt = $conn->prepare("
+    SELECT COUNT(*) FROM comments 
+    WHERE article_id IN (
+        SELECT article_id FROM articles WHERE author_id = ?
+    ) AND status = 'approved'
+");
+$stmt->bind_param("i", $journalist_id);
+$stmt->execute();
+$stmt->bind_result($comment_count);
+$stmt->fetch();
+$stmt->close();
+
+// Fetch latest 5 articles
+$latest_articles = [];
+$stmt = $conn->prepare("
+    SELECT article_id, title, created_at, status 
+    FROM articles 
+    WHERE author_id = ? 
+    ORDER BY created_at DESC 
+    LIMIT 5
+");
+$stmt->bind_param("i", $journalist_id);
+$stmt->execute();
+$stmt->bind_result($id, $title, $created_at, $status);
+while ($stmt->fetch()) {
+    $latest_articles[] = [
+        'id' => $id,
+        'title' => $title,
+        'created_at' => $created_at,
+        'status' => $status
+    ];
+}
+$stmt->close();
 ?>
 
 <!DOCTYPE html>
@@ -58,7 +106,6 @@ $username = htmlspecialchars($_SESSION['username']);
             z-index: 1030;
             padding-top: 60px;
             transition: transform 0.3s ease;
-            transform: translateX(0);
         }
 
         .sidebar-hidden {
@@ -95,7 +142,11 @@ $username = htmlspecialchars($_SESSION['username']);
         }
 
         .card {
-            margin-top: 20px;
+            margin-bottom: 20px;
+        }
+
+        .status-badge {
+            font-size: 0.8rem;
         }
     </style>
 </head>
@@ -108,7 +159,14 @@ $username = htmlspecialchars($_SESSION['username']);
             <i class="fas fa-bars"></i>
         </button>
         <h4 class="m-0">Journalist Dashboard</h4>
-        <span class="text-muted d-none d-md-inline"><?php echo $username; ?></span>
+        <div class="dropdown d-none d-md-block">
+            <a href="#" class="text-muted dropdown-toggle" id="journalistDropdown" data-bs-toggle="dropdown" aria-expanded="false" style="text-decoration:none;cursor:pointer;">
+                <?php echo $username; ?>
+            </a>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="journalistDropdown">
+                <li><a class="dropdown-item text-danger" href="logout.php"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+            </ul>
+        </div>
     </div>
 
     <!-- Sidebar -->
@@ -119,7 +177,7 @@ $username = htmlspecialchars($_SESSION['username']);
             <li><a href="add_article.php"><i class="fas fa-plus me-2"></i> Add Article</a></li>
             <li><a href="view_articles.php"><i class="fas fa-newspaper me-2"></i> View All Articles</a></li>
             <li><a href="edit_profile.php"><i class="fas fa-user-edit me-2"></i> Edit Profile</a></li>
-            <li><a href="j.manage_comment.php"><i class="fas fa-sign-out-alt me-2"></i> Manage Comment</a></li>
+            <li><a href="j.manage_comment.php"><i class="fas fa-comment-dots me-2"></i> Manage Comment</a></li>
             <li><a href="logout.php"><i class="fas fa-sign-out-alt me-2"></i> Logout</a></li>
         </ul>
     </nav>
@@ -127,40 +185,58 @@ $username = htmlspecialchars($_SESSION['username']);
     <!-- Main Content -->
     <main id="mainContent" class="main-content">
         <h1>Welcome, <?php echo $username; ?> 👋</h1>
-        <p class="lead">Manage your articles and update your profile from here.</p>
+        <p class="lead">Your journalist overview panel.</p>
 
-        <div class="row">
-            <div class="col-md-4 mb-3">
+        <!-- Statistics -->
+        <div class="row mb-4">
+            <div class="col-md-6">
                 <div class="card shadow-sm">
                     <div class="card-body text-center">
-                        <i class="fas fa-plus fa-2x mb-2 text-primary"></i>
-                        <h5 class="card-title">Add Article</h5>
-                        <a href="add_article.php" class="btn btn-outline-primary btn-sm mt-2">Create New</a>
+                        <i class="fas fa-newspaper fa-2x text-primary mb-2"></i>
+                        <h5>Total Articles</h5>
+                        <h2><?php echo $article_count; ?></h2>
                     </div>
                 </div>
             </div>
-            <div class="col-md-4 mb-3">
+            <div class="col-md-6">
                 <div class="card shadow-sm">
                     <div class="card-body text-center">
-                        <i class="fas fa-newspaper fa-2x mb-2 text-success"></i>
-                        <h5 class="card-title">View Articles</h5>
-                        <a href="view_articles.php" class="btn btn-outline-success btn-sm mt-2">View All</a>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4 mb-3">
-                <div class="card shadow-sm">
-                    <div class="card-body text-center">
-                        <i class="fas fa-user-edit fa-2x mb-2 text-warning"></i>
-                        <h5 class="card-title">Edit Profile</h5>
-                        <a href="edit_profile.php" class="btn btn-outline-warning btn-sm mt-2">Update Info</a>
+                        <i class="fas fa-comments fa-2x text-success mb-2"></i>
+                        <h5>Approved Comments</h5>
+                        <h2><?php echo $comment_count; ?></h2>
                     </div>
                 </div>
             </div>
         </div>
+
+        <!-- Latest 5 Articles -->
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h4 class="mb-3">Latest Articles</h4>
+                <?php if (empty($latest_articles)): ?>
+                    <p>No articles posted yet.</p>
+                <?php else: ?>
+                    <ul class="list-group">
+                        <?php foreach ($latest_articles as $article): ?>
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <strong><?php echo htmlspecialchars($article['title']); ?></strong><br>
+                                    <small class="text-muted"><?php echo date('M j, Y', strtotime($article['created_at'])); ?></small>
+                                </div>
+                                <span class="badge bg-<?php
+                                                        echo $article['status'] === 'approved' ? 'success' : ($article['status'] === 'pending' ? 'warning' : 'secondary');
+                                                        ?> status-badge text-uppercase">
+                                    <?php echo $article['status']; ?>
+                                </span>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                <?php endif; ?>
+            </div>
+        </div>
     </main>
 
-    <!-- JavaScript for Sidebar Toggle -->
+    <!-- Sidebar Toggle -->
     <script>
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
@@ -169,6 +245,9 @@ $username = htmlspecialchars($_SESSION['username']);
             content.classList.toggle('content-expanded');
         }
     </script>
+
+    <!-- Bootstrap JS for dropdown -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 </body>
 

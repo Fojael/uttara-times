@@ -2,106 +2,167 @@
 session_start();
 require_once 'db.php';
 
-// Validate article ID
+/*-------------------------------------------------
+ |  1. Validate and sanitise article ID
+ *------------------------------------------------*/
 if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
     http_response_code(404);
-    echo "<h1>Article not found</h1>";
-    exit();
+    exit('<h1>Article not found</h1>');
 }
+$article_id = (int) $_GET['id'];
 
-$article_id = intval($_GET['id']);
-$user_id = $_SESSION['user_id'] ?? null;
-$user_role = $_SESSION['role'] ?? null;
+/*-------------------------------------------------
+ |  2. Get logged-in user data (if any)
+ *------------------------------------------------*/
+$user_id   = $_SESSION['user_id'] ?? null;
+$user_role = $_SESSION['role']    ?? null;
 
-// Check if comments are enabled
-$comments_enabled = true;
-$setting_stmt = $conn->prepare("SELECT comments_enabled FROM comment_settings WHERE article_id = ?");
-$setting_stmt->bind_param("i", $article_id);
+/*-------------------------------------------------
+ |  3. Check per-article “comments enabled” flag
+ *------------------------------------------------*/
+$comments_enabled = true;                       // default
+$setting_stmt = $conn->prepare(
+    'SELECT comments_enabled
+       FROM comment_settings
+      WHERE article_id = ?'
+);
+$setting_stmt->bind_param('i', $article_id);
 $setting_stmt->execute();
-$setting_stmt->bind_result($comments_enabled_val);
+$setting_stmt->bind_result($enabled_val);
 if ($setting_stmt->fetch()) {
-    $comments_enabled = (bool)$comments_enabled_val;
+    $comments_enabled = (bool) $enabled_val;
 }
 $setting_stmt->close();
 
-// Handle new comment submission
+/*-------------------------------------------------
+ |  4. Handle a new comment
+ *------------------------------------------------*/
 $comment_submitted = false;
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $comments_enabled && isset($_POST['name'], $_POST['content'])) {
-    $name = trim($_POST['name']);
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST' &&
+    $comments_enabled &&
+    isset($_POST['name'], $_POST['content'])
+) {
+    $name    = trim($_POST['name']);
     $content = trim($_POST['content']);
 
-    if ($name && $content) {
-        $stmt = $conn->prepare("INSERT INTO comments (article_id, name, content, status) VALUES (?, ?, ?, 'pending')");
-        $stmt->bind_param("iss", $article_id, $name, $content);
-        $stmt->execute();
-        $stmt->close();
+    if ($name !== '' && $content !== '') {
+        $ins = $conn->prepare(
+            "INSERT INTO comments (article_id, name, content, status)
+                  VALUES (?, ?, ?, 'pending')"
+        );
+        $ins->bind_param('iss', $article_id, $name, $content);
+        $ins->execute();
+        $ins->close();
         $comment_submitted = true;
     }
-}
-
-// Fetch article
-$stmt = $conn->prepare("SELECT a.title, a.content, a.image_url, a.created_at, a.updated_at, a.status, a.author_id, u.username 
-                        FROM articles a 
-                        JOIN users u ON a.author_id = u.user_id 
-                        WHERE a.article_id = ?");
-$stmt->bind_param("i", $article_id);
-$stmt->execute();
-$stmt->store_result();
-
-if ($stmt->num_rows === 0) {
-    $stmt->close();
-    http_response_code(404);
-    echo "<h1>Article not found</h1>";
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SESSION['user_id']) && $_SESSION['role'] === 'user') {
+    require 'db.php';
+    $article_id = (int)($_GET['id'] ?? 0);
+    $user_id = $_SESSION['user_id'];
+    $comment = trim($_POST['comment'] ?? '');
+    if ($comment) {
+        $stmt = $conn->prepare('INSERT INTO comments (article_id, user_id, comment, created_at) VALUES (?, ?, ?, NOW())');
+        $stmt->bind_param('iis', $article_id, $user_id, $comment);
+        $stmt->execute();
+    }
+    header('Location: view_article.php?id=' . $article_id);
     exit();
 }
 
-$stmt->bind_result($title, $content, $image_url, $created_at, $updated_at, $status, $author_id, $author_username);
-$stmt->fetch();
-$stmt->close();
+/*-------------------------------------------------
+ |  5. Fetch the article
+ *------------------------------------------------*/
+$article_stmt = $conn->prepare(
+    'SELECT a.title, a.content, a.image_url,
+            a.created_at, a.updated_at, a.status,
+            a.author_id, u.username
+       FROM articles a
+  INNER JOIN users u ON a.author_id = u.user_id
+      WHERE a.article_id = ?'
+);
+$article_stmt->bind_param('i', $article_id);
+$article_stmt->execute();
+$article_stmt->store_result();
 
-// Access control
+if ($article_stmt->num_rows === 0) {
+    $article_stmt->close();
+    http_response_code(404);
+    exit('<h1>Article not found</h1>');
+}
+
+$article_stmt->bind_result(
+    $title,
+    $content,
+    $image_url,
+    $created_at,
+    $updated_at,
+    $status,
+    $author_id,
+    $author_username
+);
+$article_stmt->fetch();
+$article_stmt->close();
+
+/*-------------------------------------------------
+ |  6. Access control
+ *------------------------------------------------*/
 $can_view = false;
+
 if ($user_role === 'editor') {
     $can_view = true;
 } elseif ($user_role === 'journalist') {
-    if ($author_id == $user_id || $status === 'approved') {
-        $can_view = true;
-    }
+    $can_view = ($author_id == $user_id) || ($status === 'approved');
 } elseif ($status === 'approved') {
     $can_view = true;
 }
 
 if (!$can_view) {
     http_response_code(404);
-    echo "<h1>Article not found</h1>";
-    exit();
+    exit('<h1>Article not found</h1>');
 }
 
-// Get approved comments
+/*-------------------------------------------------
+ |  7. Fetch approved comments
+ *------------------------------------------------*/
 $comments = [];
-$cstmt = $conn->prepare("SELECT name, content, created_at FROM comments WHERE article_id = ? AND status = 'approved' ORDER BY created_at DESC");
-$cstmt->bind_param("i", $article_id);
+$cstmt = $conn->prepare(
+    "SELECT name, content, created_at
+       FROM comments
+      WHERE article_id = ? AND status = 'approved'
+   ORDER BY created_at DESC"
+);
+$cstmt->bind_param('i', $article_id);
 $cstmt->execute();
 $cstmt->bind_result($c_name, $c_content, $c_created);
 while ($cstmt->fetch()) {
-    $comments[] = ['name' => $c_name, 'content' => $c_content, 'created_at' => $c_created];
+    $comments[] = [
+        'name'       => $c_name,
+        'content'    => $c_content,
+        'created_at' => $c_created,
+    ];
 }
 $cstmt->close();
 
-// Always go back to index
-$back_url = 'index.php';
+/*-------------------------------------------------
+ |  8. Build a robust “Back” URL
+ *------------------------------------------------*/
+$back_url = $_SERVER['HTTP_REFERER'] ?? 'index.php';   // graceful fallback
 ?>
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8" />
-    <title><?php echo htmlspecialchars($title); ?></title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" />
+    <meta charset="UTF-8">
+    <title><?= htmlspecialchars($title) ?></title>
+
+    <!-- Bootstrap core -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
     <style>
         body {
-            font-family: 'Segoe UI', sans-serif;
-            background-color: #f8f9fa;
+            font-family: "Segoe UI", sans-serif;
+            background: #f8f9fa;
             padding: 30px;
             max-width: 900px;
             margin: auto;
@@ -120,12 +181,8 @@ $back_url = 'index.php';
 
         .article-meta {
             color: #666;
-            font-size: 0.9rem;
+            font-size: .9rem;
             margin-bottom: 20px;
-        }
-
-        .comment-box {
-            margin-top: 40px;
         }
 
         .comment {
@@ -133,7 +190,7 @@ $back_url = 'index.php';
             border-radius: 6px;
             padding: 10px;
             margin-bottom: 15px;
-            background-color: #fff;
+            background: #fff;
         }
 
         .comment small {
@@ -144,67 +201,111 @@ $back_url = 'index.php';
 
 <body>
 
-    <a href="<?php echo htmlspecialchars($back_url); ?>" class="btn btn-secondary back-btn">&larr; Back</a>
+    <!-- BACK BUTTON -->
+    <a href="<?= htmlspecialchars($back_url) ?>"
+        class="btn btn-secondary back-btn">
+        &larr; Back
+    </a>
 
-    <h1><?php echo htmlspecialchars($title); ?></h1>
+    <?php
+    // Fetch Active Sidebar Ads for Article Page
+    $sidebarAds = $conn->query("SELECT * FROM advertisements WHERE status='active' AND position='home_sidebar' ORDER BY start_date DESC"); // Or a specific 'article_sidebar' position if we created it, but reusing home_sidebar or article_bottom as per plan
+    ?>
 
-    <div class="article-meta">
-        By <strong><?php echo htmlspecialchars($author_username); ?></strong> |
-        Published on <?php echo date('F j, Y, g:i a', strtotime($created_at)); ?>
-        <?php if ($updated_at !== $created_at): ?>
-            <br>
-            <small><em>Edited at <?php echo date('F j, Y, g:i a', strtotime($updated_at)); ?></em></small>
-        <?php endif; ?>
+    <div class="row">
+        <div class="col-lg-8">
+            <!-- ARTICLE -->
+            <h1><?= htmlspecialchars($title) ?></h1>
+
+            <div class="article-meta">
+                By <strong><?= htmlspecialchars($author_username) ?></strong> |
+                Published on <?= date('F j, Y, g:i a', strtotime($created_at)) ?>
+                <?php if ($updated_at !== $created_at): ?>
+                    <br><small><em>Edited at <?= date('F j, Y, g:i a', strtotime($updated_at)) ?></em></small>
+                <?php endif; ?>
+            </div>
+
+            <?php if ($image_url): ?>
+                <img src="<?= htmlspecialchars($image_url) ?>"
+                    alt="Article image"
+                    class="article-image">
+            <?php endif; ?>
+
+            <div class="article-content" style="white-space:pre-wrap;">
+                <?= nl2br(htmlspecialchars($content)) ?>
+            </div>
+
+            <!-- COMMENT FORM -->
+            <div class="comment-box mt-5">
+                <h3>Leave a Comment</h3>
+
+                <?php if ($comment_submitted): ?>
+                    <div class="alert alert-success">
+                        Thank you! Your comment is awaiting moderation.
+                    </div>
+                <?php endif; ?>
+
+                <?php if ($comments_enabled): ?>
+                    <form method="post" class="mb-4">
+                        <div class="mb-3">
+                            <label for="name" class="form-label">Your Name</label>
+                            <input id="name" name="name" class="form-control"
+                                maxlength="100" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="content" class="form-label">Your Comment</label>
+                            <textarea id="content" name="content"
+                                class="form-control" rows="4" required></textarea>
+                        </div>
+
+                        <button class="btn btn-primary" type="submit">
+                            Submit Comment
+                        </button>
+                    </form>
+                <?php else: ?>
+                    <div class="alert alert-warning">
+                        Commenting is currently disabled for this article.
+                    </div>
+                <?php endif; ?>
+            </div>
+
+            <!-- COMMENT LIST -->
+            <div class="comment-box">
+                <h3 class="mt-5">Comments</h3>
+                <?php if (empty($comments)): ?>
+                    <p>No comments yet.</p>
+                <?php else: ?>
+                    <?php foreach ($comments as $comment): ?>
+                        <div class="comment">
+                            <strong><?= htmlspecialchars($comment['name']) ?></strong><br>
+                            <small><?= date(
+                                        'F j, Y, g:i a',
+                                        strtotime($comment['created_at'])
+                                    ) ?></small>
+                            <p><?= nl2br(htmlspecialchars($comment['content'])) ?></p>
+                        </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- SIDEBAR ADS -->
+        <div class="col-lg-4">
+            <div class="sticky-top" style="top: 2rem;">
+                 <?php if ($sidebarAds && $sidebarAds->num_rows > 0): ?>
+                    <h5 class="text-muted text-center mb-3">Sponsored</h5>
+                    <?php while($sad = $sidebarAds->fetch_assoc()): ?>
+                        <div class="mb-4 text-center">
+                            <a href="<?= htmlspecialchars($sad['link_url']) ?>" target="_blank">
+                                <img src="<?= htmlspecialchars($sad['image_url']) ?>" class="img-fluid rounded shadow-sm">
+                            </a>
+                        </div>
+                    <?php endwhile; ?>
+                <?php endif; ?>
+            </div>
+        </div>
     </div>
-
-    <?php if ($image_url): ?>
-        <img src="<?php echo htmlspecialchars($image_url); ?>" alt="Article Image" class="article-image" />
-    <?php endif; ?>
-
-    <div class="article-content" style="white-space: pre-wrap;">
-        <?php echo nl2br(htmlspecialchars($content)); ?>
-    </div>
-
-    <!-- Comment Form -->
-    <div class="comment-box">
-        <h3>Leave a Comment</h3>
-        <?php if (!empty($comment_submitted)): ?>
-            <div class="alert alert-success">Thank you! Your comment is awaiting moderation.</div>
-        <?php endif; ?>
-
-        <?php if ($comments_enabled): ?>
-            <form method="POST">
-                <div class="mb-3">
-                    <label for="name" class="form-label">Your Name</label>
-                    <input name="name" id="name" class="form-control" required maxlength="100">
-                </div>
-                <div class="mb-3">
-                    <label for="content" class="form-label">Your Comment</label>
-                    <textarea name="content" id="content" class="form-control" rows="4" required></textarea>
-                </div>
-                <button type="submit" class="btn btn-primary">Submit Comment</button>
-            </form>
-        <?php else: ?>
-            <div class="alert alert-warning">Commenting is currently disabled for this article.</div>
-        <?php endif; ?>
-    </div>
-
-    <!-- Display Approved Comments -->
-    <div class="comment-box">
-        <h3 class="mt-5">Comments</h3>
-        <?php if (empty($comments)): ?>
-            <p>No comments yet.</p>
-        <?php else: ?>
-            <?php foreach ($comments as $comment): ?>
-                <div class="comment">
-                    <strong><?php echo htmlspecialchars($comment['name']); ?></strong><br>
-                    <small><?php echo date('F j, Y, g:i a', strtotime($comment['created_at'])); ?></small>
-                    <p><?php echo nl2br(htmlspecialchars($comment['content'])); ?></p>
-                </div>
-            <?php endforeach; ?>
-        <?php endif; ?>
-    </div>
-
 </body>
 
 </html>

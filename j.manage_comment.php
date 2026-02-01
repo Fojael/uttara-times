@@ -179,11 +179,15 @@ $result = $stmt->get_result();
 
     <!-- Top Navbar -->
     <div class="top-navbar">
-        <button class="hamburger" onclick="toggleSidebar()">
-            <i class="fas fa-bars"></i>
-        </button>
         <h4 class="m-0">Manage Comments</h4>
-        <span class="text-muted d-none d-md-inline"><?php echo $username; ?></span>
+        <div class="dropdown d-none d-md-block" style="position:absolute;top:10px;right:30px;">
+            <a href="#" class="text-muted dropdown-toggle" id="journalistDropdown" data-bs-toggle="dropdown" aria-expanded="false" style="text-decoration:none;cursor:pointer;">
+                <?php echo htmlspecialchars($_SESSION['username'] ?? ''); ?>
+            </a>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="journalistDropdown">
+                <li><a class="dropdown-item text-danger" href="logout.php"><i class="fas fa-sign-out-alt me-2"></i>Logout</a></li>
+            </ul>
+        </div>
     </div>
 
     <!-- Sidebar -->
@@ -222,6 +226,9 @@ $result = $stmt->get_result();
             </div>
         <?php endwhile; ?>
     </main>
+
+    <!-- Bootstrap JS for dropdown -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
         function toggleSidebar() {
